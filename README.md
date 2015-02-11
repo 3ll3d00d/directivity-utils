@@ -1,6 +1,6 @@
 # directivity-utils
 
-This is a very early pre pre pre alpha of a script to create a directivity sonogram based on measurements dumped out of [REW] (http://www.roomeqwizard.com/) (and until such time as http://www.hometheatershack.com/forums/rew-forum/111090-feature-request-polar-response-plots.html is implemented).
+A script to create a directivity sonogram based on measurements dumped out of [REW] (http://www.roomeqwizard.com/) (and until such time as http://www.hometheatershack.com/forums/rew-forum/111090-feature-request-polar-response-plots.html is implemented).
 
 # What is a polar map?
 
@@ -39,24 +39,25 @@ NB: assumes generate.sh from this repo is on your path and is executable
 
     generate.sh
 
-* look for a file named output.png in the dir
+* look for some png files in the output dir
+
+if you want to know what the cmd line options are then just run generate.sh -v
+
+    generate.sh -d -l 100 -h 22000 -m -x 1920 -y 1080 -p foo -z 30
+        -d force delete of existing generated files
+	-l sets the lo frequency for the data generated, if unset default to the minimum value in the input data (NB: actually 200 for now)
+        -h sets the hi frequency for the data generated, if unset default to the maximum value in the input data (NB: actually 24000 for now)
+        -m mirror mode
+        -x width of image in pixels, default 1920
+        -y height of image in pixels, default 1080
+        -p file name prefix
+        -z z axis range, defaults to 30dB
 
 # TODO
-
-NB: this is quite the hack atm so there is loads that could be done so only the obvious stuff is listed
-
-## Processing
-
-* determine min/max values per axis from the data supplied
-* provide a "normalise to 0 degrees" function
 
 ## Formatting
 
 * label the contours as -3, -6, -9 etc
 * fix the colour scheme applied to the contour lines
 
-## User Experience
-
-* don't eagerly delete existing files
-* accept cmdline options where appropriate
  

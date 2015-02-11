@@ -105,7 +105,7 @@ do
 	     SHIFT_COUNT=$((SHIFT_COUNT+2))
 	     PREFIX="${OPTARG}"
 	     ;;
-         ?)
+         *)
              usage
              exit 1
              ;;
