@@ -1,18 +1,19 @@
-#/bin/bash -x 
+#!/bin/bash 
 
 # data should be exported as space delimited freq/dB (usually has phase as 3rd column)
 # filenames should be <foo>_<degrees>.dat where foo is some consistent prefix and degrees can be 90 or -90
 FORCE_DELETE=0
-MIN_FREQ=200
-MAX_FREQ=24000
+MIN_FREQ=100
+MAX_FREQ=20000
 AUTO_MIRROR=0
 TARGET_DIR="$(pwd)"
 WIDTH=1920
 HEIGHT=1080
 PREFIX=
+Z_RANGE=30
 
 function usage {
-    echo "generate.sh -d -l 100 -h 22000 -m -x 1920 -y 1080 -p foo"
+    echo "generate.sh -d -l 100 -h 22000 -m -x 1920 -y 1080 -p foo -z 30"
     echo "    -d force delete of existing generated files"
     echo "    -l sets the lo frequency for the data generated, if unset default to the minimum value in the input data (NB: actually 200 for now)"
     echo "    -h sets the hi frequency for the data generated, if unset default to the maximum value in the input data (NB: actually 24000 for now)"
@@ -20,6 +21,7 @@ function usage {
     echo "    -x width of image in pixels, default 1920"
     echo "    -y height of image in pixels, default 1080"
     echo "    -p file name prefix"
+    echo "    -z z axis range, defaults to 30dB"
 }
 
 function delete_or_blow {
@@ -48,6 +50,28 @@ function mirror_data {
 	local DEGREES="${DEGREES:1}"
 	[[ ! -e "${PREFIX}_${DEGREES}.dat" ]] && cp "${each}" "${PREFIX}_${DEGREES}.dat"
     done
+}
+
+# parses file to normalise all SPL values relative to the 0 degree
+# assumes data is consistent (i.e. freq value exists for each degree)
+function generate_normalised_data {
+    awk -F" " '
+        function dump_normalised() {
+            norm_spl=spl[0]
+            for (val in spl) 
+                print freq, val, spl[val]-norm_spl
+            freq=0
+            delete spl
+        }
+        BEGIN { freq=0 }
+        {
+            if ( freq != 0 && freq != $1 ) {
+                dump_normalised()
+            }
+            freq=$1
+            spl[$2]=$3
+        }
+    ' ${PREFIX}_sorted_directivity.txt > ${PREFIX}_normalised_directivity.txt
 }
 
 while getopts "mdl:h:x:y:p:" OPTION
@@ -103,7 +127,9 @@ echo "Generating data from ${TARGET_DIR} with prefix ${PREFIX} in range ${MIN_FR
 
 delete_or_blow "${PREFIX}_directivity.txt"
 delete_or_blow "${PREFIX}_sorted_directivity.txt"
+delete_or_blow "${PREFIX}_normalised_sorted_directivity.txt"
 delete_or_blow "${PREFIX}_gnuplot.txt"
+delete_or_blow "${PREFIX}_normalised_gnuplot.txt"
 
 cd "${TARGET_DIR}"
 
@@ -118,35 +144,53 @@ do
     ROOT="${each%%.dat}"
     DEGREES="${ROOT##*_}"
     echo "Parsing ${DEGREES} from ${each}"
-    awk -F" " -v deg=${DEGREES} -v minfreq=${MIN_FREQ} -v maxfreq=${MAX_FREQ} '/^[0-9]/ { if ( $1 >= minfreq ) { if ( $1 <= maxfreq ) { print $1, deg, $2 } } }' $each >> directivity.txt
+    awk -F" " -v deg=${DEGREES} -v minfreq=${MIN_FREQ} -v maxfreq=${MAX_FREQ} '/^[0-9]/ { if ( $1 >= minfreq ) { if ( $1 <= maxfreq ) { print $1, deg, $2 } } }' $each >> ${PREFIX}_directivity.txt
 done
-[[ ! -e directivity.txt ]] && echo "No files processed" && exit 66
-DATA_ROWS="$(wc -l < directivity.txt)"
+
+# check we have some data
+[[ ! -e ${PREFIX}_directivity.txt ]] && echo "No files processed" && exit 66
+DATA_ROWS="$(wc -l < ${PREFIX}_directivity.txt)"
 [[ ${DATA_ROWS} -eq 0 ]] && echo "No data found" && exit 67
-# sort by frequency and degrees
-sort -k1V,2V directivity.txt > sorted_directivity.txt
+
+# sort to asc frequency/degree order
+sort  -k1,1g -k2,2g ${PREFIX}_directivity.txt > ${PREFIX}_sorted_directivity.txt
+
+generate_normalised_data
+sort  -k1,1g -k2,2g ${PREFIX}_normalised_directivity.txt > ${PREFIX}_normalised_sorted_directivity.txt
+
 # add a blank row after every batch of frequency data
-# NB: assumes each input file is identical, bad things will happen otherwise!!
-NO_OF_AXIS_MEASUREMENTS="$(cut -d" " -f2 directivity.txt |sort |uniq|wc -l)"
-awk -v n=${NO_OF_AXIS_MEASUREMENTS} '1; NR % n == 0 {print ""}' sorted_directivity.txt > gnuplot_input.txt
+NO_OF_AXIS_MEASUREMENTS="$(cut -d" " -f2 ${PREFIX}_directivity.txt |sort |uniq|wc -l)"
+awk -v n=${NO_OF_AXIS_MEASUREMENTS} '1; NR % n == 0 {print ""}' ${PREFIX}_sorted_directivity.txt > ${PREFIX}_gnuplot_input.txt
+awk -v n=${NO_OF_AXIS_MEASUREMENTS} '1; NR % n == 0 {print ""}' ${PREFIX}_normalised_sorted_directivity.txt > ${PREFIX}_normalised_gnuplot_input.txt
 
-echo "Plotting output.png (size ${WIDTH} x ${HEIGHT})"
+# find the min/max frequency
+ACTUAL_MIN_FREQ=$(head -n1 ${PREFIX}_sorted_directivity.txt | cut -d" " -f1)
+ACTUAL_MAX_FREQ=$(tail -n1 ${PREFIX}_sorted_directivity.txt | cut -d" " -f1)
+# find the max spl
+ACTUAL_MAX_SPL=$(sort -k3,3gr ${PREFIX}_sorted_directivity.txt | head -n1 | cut -d" " -f3)
+ACTUAL_MAX_SPL=$(printf "%.0f" $(bc -l <<< "${ACTUAL_MAX_SPL}+0.5"))
+MIN_SPL_MARKER=$((ACTUAL_MAX_SPL-Z_RANGE))
+MAX_SPL_MARKER=$((ACTUAL_MAX_SPL-3))
+# find the min/max degrees
+ACTUAL_MIN_DEGREES=$(sort -k2,2g foo_sorted_directivity.txt |head -n1| cut -d" " -f2)
+ACTUAL_MAX_DEGREES=$(sort -k2,2gr foo_sorted_directivity.txt |head -n1| cut -d" " -f2)
 
-# TODO work out min/max levels from input data + pass through to gnuplot
+echo "Plotting output.png (size   : ${WIDTH} x ${HEIGHT}) "
+echo "                    (Freq   : ${ACTUAL_MIN_FREQ} to ${ACTUAL_MAX_FREQ})"
+echo "                    (Degrees: ${ACTUAL_MIN_DEGREES} to ${ACTUAL_MAX_DEGREES})"
+echo "                    (SPL    : ${MIN_SPL_MARKER} to ${ACTUAL_MAX_SPL})"
 
+# normal
 gnuplot <<EOF
 # set the input and output
 set term png size ${WIDTH},${HEIGHT} crop
-set output "output.png"
 set datafile separator " "
 
 # plot features
 set pm3d map
 set contour surface
-set cntrparam levels incremental 59,1.5,71
-set cntrparam cubicspline
-set cbrange [59:74]
 set pm3d interpolate 20,20
+set cntrparam cubicspline
 
 # formatting of axes etc
 set logscale x 10
@@ -155,17 +199,31 @@ set mxtics 10
 set xlabel 'Frequency (Hz)'
 
 set ylabel 'deg'
-set yrange [-90:90]
-set ytics -90,7.5,90
+set yrange [${ACTUAL_MIN_DEGREES}:${ACTUAL_MAX_DEGREES}]
+set ytics ${ACTUAL_MIN_DEGREES},20,${ACTUAL_MAX_DEGREES}
 
 set key outside
 set key top right
+
+# black background
+#set object 1 rectangle from screen 0,0 to screen 1,1 fillcolor rgbcolor "black" behind 
 
 # jet palette
 f(x)=1.5-4*abs(x)
 set palette model RGB
 set palette functions f(gray-0.75),f(gray-0.5),f(gray-0.25)
 
-# now plot
-splot 'gnuplot_input.txt' using 1:2:3 title "                      "
+# plot the absolute view
+set cntrparam levels incremental ${MIN_SPL_MARKER},3,${MAX_SPL_MARKER}
+set cbrange [${MIN_SPL_MARKER}:${ACTUAL_MAX_SPL}]
+set output "${PREFIX}_output.png"
+splot '${PREFIX}_gnuplot_input.txt' using 1:2:3 title "                      " 
+
+# plot the relative view
+set cntrparam levels incremental -30,3,-3
+set cbrange [-30:0]
+
+set output "${PREFIX}_normalised_output.png"
+splot '${PREFIX}_normalised_gnuplot_input.txt' using 1:2:3 title "                      " 
 EOF
+
