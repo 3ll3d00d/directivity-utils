@@ -11,7 +11,7 @@ See [this article] (http://www.acousticfrontiers.com/20131129controlled-directiv
 * a set of measurements containing appropriately measured data of a loudspeaker taken at various angles
 * either
     * a linux box
-    * a windows box with cygwin
+    * a windows box with cygwin - install from [here](https://www.cygwin.com/)
 * gnuplot
 * awk
 
