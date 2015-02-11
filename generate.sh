@@ -220,8 +220,8 @@ set output "${PREFIX}_output.png"
 splot '${PREFIX}_gnuplot_input.txt' using 1:2:3 title "                      " 
 
 # plot the relative view
-set cntrparam levels incremental -30,3,-3
-set cbrange [-30:0]
+set cntrparam levels incremental -27,3,-3
+set cbrange [-27:2]
 
 set output "${PREFIX}_normalised_output.png"
 splot '${PREFIX}_normalised_gnuplot_input.txt' using 1:2:3 title "                      " 
