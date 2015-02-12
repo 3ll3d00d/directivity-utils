@@ -160,8 +160,8 @@ sort  -k1,1g -k2,2g ${PREFIX}_normalised_directivity.txt > ${PREFIX}_normalised_
 
 # add a blank row after every batch of frequency data
 NO_OF_AXIS_MEASUREMENTS="$(cut -d" " -f2 ${PREFIX}_directivity.txt |sort |uniq|wc -l)"
-awk -v n=${NO_OF_AXIS_MEASUREMENTS} '1; NR % n == 0 {print ""}' ${PREFIX}_sorted_directivity.txt > ${PREFIX}_gnuplot_input.txt
-awk -v n=${NO_OF_AXIS_MEASUREMENTS} '1; NR % n == 0 {print ""}' ${PREFIX}_normalised_sorted_directivity.txt > ${PREFIX}_normalised_gnuplot_input.txt
+awk -v n=${NO_OF_AXIS_MEASUREMENTS} '1; NR % n == 0 {print ""}' ${PREFIX}_sorted_directivity.txt > ${PREFIX}_sonogram_input.txt
+awk -v n=${NO_OF_AXIS_MEASUREMENTS} '1; NR % n == 0 {print ""}' ${PREFIX}_normalised_sorted_directivity.txt > ${PREFIX}_normalised_sonogram_input.txt
 
 # find the min/max frequency
 ACTUAL_MIN_FREQ=$(head -n1 ${PREFIX}_sorted_directivity.txt | cut -d" " -f1)
@@ -175,10 +175,33 @@ MAX_SPL_MARKER=$((ACTUAL_MAX_SPL-3))
 ACTUAL_MIN_DEGREES=$(sort -k2,2g foo_sorted_directivity.txt |head -n1| cut -d" " -f2)
 ACTUAL_MAX_DEGREES=$(sort -k2,2gr foo_sorted_directivity.txt |head -n1| cut -d" " -f2)
 
-echo "Plotting output.png (size   : ${WIDTH} x ${HEIGHT}) "
-echo "                    (Freq   : ${ACTUAL_MIN_FREQ} to ${ACTUAL_MAX_FREQ})"
-echo "                    (Degrees: ${ACTUAL_MIN_DEGREES} to ${ACTUAL_MAX_DEGREES})"
-echo "                    (SPL    : ${MIN_SPL_MARKER} to ${ACTUAL_MAX_SPL})"
+# sort out the normalised polar input data
+# intensity: 0dB = 1, -30dB = 0 (i.e. normalise a 30dB range to between 0-1)
+# angle: -90 = 180, 0 = 90, +90 = 0 (i.e. reset +90 to 0 and -90 to 180)
+for i in 1000 2000 4000 8000 16000
+do
+    awk -F" " -v target=${i} '
+        BEGIN { freq = 0 } 
+        $1 > target { 
+            if ( freq == 0 ) { freq = $1 } 
+            if ( freq == $1 ) { normspl=($3+30)/30; print sqrt(($2-90)^2), (normspl < 0 ? 0 : normspl) } }
+        ' ${PREFIX}_normalised_sorted_directivity.txt > ${PREFIX}_norm_polar_${i}.txt
+done
+# and the unnormalised polar input data
+for i in 1000 2000 4000 8000 16000
+do
+    awk -F" " -v target=${i} -v minspl=${MIN_SPL_MARKER} '
+        BEGIN { freq = 0 } 
+        $1 > target { 
+            if ( freq == 0 ) { freq = $1 }; 
+            if ( freq == $1 ) { normspl=($3-minspl)/30; print sqrt(($2-90)^2), (normspl < 0 ? 0 : normspl) } }
+        ' ${PREFIX}_sorted_directivity.txt > ${PREFIX}_polar_${i}.txt
+done
+
+echo "Plotting sonogram.png (size   : ${WIDTH} x ${HEIGHT}) "
+echo "                      (Freq   : ${ACTUAL_MIN_FREQ} to ${ACTUAL_MAX_FREQ})"
+echo "                      (Degrees: ${ACTUAL_MIN_DEGREES} to ${ACTUAL_MAX_DEGREES})"
+echo "                      (SPL    : ${MIN_SPL_MARKER} to ${ACTUAL_MAX_SPL})"
 
 # normal
 gnuplot <<EOF
@@ -216,14 +239,66 @@ set palette functions f(gray-0.75),f(gray-0.5),f(gray-0.25)
 # plot the absolute view
 set cntrparam levels incremental ${MIN_SPL_MARKER},3,${MAX_SPL_MARKER}
 set cbrange [${MIN_SPL_MARKER}:${ACTUAL_MAX_SPL}]
-set output "${PREFIX}_output.png"
-splot '${PREFIX}_gnuplot_input.txt' using 1:2:3 title "                      " 
+set output "${PREFIX}_sonogram.png"
+splot '${PREFIX}_sonogram_input.txt' using 1:2:3 title "                      " 
 
 # plot the relative view
 set cntrparam levels incremental -27,3,-3
 set cbrange [-27:2]
 
-set output "${PREFIX}_normalised_output.png"
-splot '${PREFIX}_normalised_gnuplot_input.txt' using 1:2:3 title "                      " 
+set output "${PREFIX}_normalised_sonogram.png"
+splot '${PREFIX}_normalised_sonogram_input.txt' using 1:2:3 title "                      " 
+EOF
+
+# polar plot
+
+gnuplot <<EOF
+set terminal pngcairo size ${WIDTH}/2,${HEIGHT}/2 font ',10'
+
+set polar
+set angle degrees
+set size ratio 1
+set tmargin 3
+set bmargin 3
+
+set style line 11 lc rgb 'gray80' lt -1
+set grid polar ls 11
+
+unset border
+unset xtics
+unset ytics
+
+set xrange [-30:30]
+set yrange [-30:30]
+set key
+
+r=1
+set rrange [0:r]
+set rtics 0.166 format '' scale 0
+set label '0°' center at first 0, first r*1.05
+set label '180°' center at first 0, first -r*1.05
+set label '-90°' right at first -r*1.05, 0
+set label '+90°' left at first r*1.05, 0
+
+set for [i=1:5] label at first r*0.02, first r*((i/6.0) + 0.03) sprintf("%d dB", -30+(i*5))
+unset raxis
+
+set key outside top right
+set style line 11 lw 2 
+
+set output '${PREFIX}_polar.png'
+set multiplot layout 1,2 title "Circular Polar Response"
+plot '${PREFIX}_norm_polar_1000.txt' t '1k'  w lp ls 11 lt 1 pt -1 , \
+     '${PREFIX}_norm_polar_2000.txt' t '2k'  w lp ls 11 lt 2 pt -1 , \
+     '${PREFIX}_norm_polar_4000.txt' t '4k'  w lp ls 11 lt 3 pt -1 , \
+     '${PREFIX}_norm_polar_8000.txt' t '8k'  w lp ls 11 lt 4 pt -1 , \
+     '${PREFIX}_norm_polar_16000.txt' t '16k' w lp ls 11 lt 5 pt -1 
+
+plot '${PREFIX}_polar_1000.txt' t '1k'  w lp ls 11 lt 1 pt -1 , \
+     '${PREFIX}_polar_2000.txt' t '2k'  w lp ls 11 lt 2 pt -1 , \
+     '${PREFIX}_polar_4000.txt' t '4k'  w lp ls 11 lt 3 pt -1 , \
+     '${PREFIX}_polar_8000.txt' t '8k'  w lp ls 11 lt 4 pt -1 , \
+     '${PREFIX}_polar_16000.txt' t '16k' w lp ls 11 lt 5 pt -1 
+
 EOF
 
