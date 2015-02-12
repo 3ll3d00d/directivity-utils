@@ -288,12 +288,13 @@ set style line 11 lw 2
 
 set output '${PREFIX}_polar.png'
 set multiplot layout 1,2 title "Circular Polar Response"
+set title "Normalised"
 plot '${PREFIX}_norm_polar_1000.txt' t '1k'  w lp ls 11 lt 1 pt -1 , \
      '${PREFIX}_norm_polar_2000.txt' t '2k'  w lp ls 11 lt 2 pt -1 , \
      '${PREFIX}_norm_polar_4000.txt' t '4k'  w lp ls 11 lt 3 pt -1 , \
      '${PREFIX}_norm_polar_8000.txt' t '8k'  w lp ls 11 lt 4 pt -1 , \
      '${PREFIX}_norm_polar_16000.txt' t '16k' w lp ls 11 lt 5 pt -1 
-
+set title "Unnormalised"
 plot '${PREFIX}_polar_1000.txt' t '1k'  w lp ls 11 lt 1 pt -1 , \
      '${PREFIX}_polar_2000.txt' t '2k'  w lp ls 11 lt 2 pt -1 , \
      '${PREFIX}_polar_4000.txt' t '4k'  w lp ls 11 lt 3 pt -1 , \
