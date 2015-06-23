@@ -74,13 +74,13 @@ function generate_normalised_data {
     ' ${PREFIX}_sorted_directivity.txt > ${PREFIX}_normalised_directivity.txt
 }
 
-while getopts "mdl:h:x:y:p:" OPTION
+while getopts "mdl:h:x:y:p:z:" OPTION
 do
      case $OPTION in
-         m)
-             SHIFT_COUNT=$((SHIFT_COUNT+1))
-             AUTO_MIRROR=1
-             ;;
+     m)
+         SHIFT_COUNT=$((SHIFT_COUNT+1))
+         AUTO_MIRROR=1
+         ;;
 	 d)
 	     SHIFT_COUNT=$((SHIFT_COUNT+1))
 	     FORCE_DELETE=1
@@ -104,6 +104,10 @@ do
 	 p)
 	     SHIFT_COUNT=$((SHIFT_COUNT+2))
 	     PREFIX="${OPTARG}"
+	     ;;
+	 z)
+	     SHIFT_COUNT=$((SHIFT_COUNT+2))
+	     Z_RANGE="${OPTARG}"
 	     ;;
          *)
              usage
@@ -172,8 +176,8 @@ ACTUAL_MAX_SPL=$(printf "%.0f" $(bc -l <<< "${ACTUAL_MAX_SPL}+0.5"))
 MIN_SPL_MARKER=$((ACTUAL_MAX_SPL-Z_RANGE))
 MAX_SPL_MARKER=$((ACTUAL_MAX_SPL-3))
 # find the min/max degrees
-ACTUAL_MIN_DEGREES=$(sort -k2,2g foo_sorted_directivity.txt |head -n1| cut -d" " -f2)
-ACTUAL_MAX_DEGREES=$(sort -k2,2gr foo_sorted_directivity.txt |head -n1| cut -d" " -f2)
+ACTUAL_MIN_DEGREES=$(sort -k2,2g ${PREFIX}_sorted_directivity.txt |head -n1| cut -d" " -f2)
+ACTUAL_MAX_DEGREES=$(sort -k2,2gr ${PREFIX}_sorted_directivity.txt |head -n1| cut -d" " -f2)
 
 # sort out the normalised polar input data
 # intensity: 0dB = 1, -30dB = 0 (i.e. normalise a 30dB range to between 0-1)
