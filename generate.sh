@@ -13,9 +13,10 @@ PREFIX=
 Z_RANGE=30
 X_TICS=(200 400 600 800 1000 1250 1500 1750 2000 2500 3000 3500 4000 5000 10000 15000 20000)
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+FRD_EXTENSION="txt"
 
 function usage {
-    echo "generate.sh -d -l 100 -h 22000 -m -x 1920 -y 1080 -p foo -z 30 -r 80"
+    echo "generate.sh -d -l 100 -h 22000 -m -x 1920 -y 1080 -p foo -z 30 -r 80 -e txt"
     echo "    -d force delete of existing generated files"
     echo "    -l sets the lo frequency for the data generated, if unset default to the minimum value in the input data (NB: actually 200 for now)"
     echo "    -h sets the hi frequency for the data generated, if unset default to the maximum value in the input data (NB: actually 24000 for now)"
@@ -25,6 +26,7 @@ function usage {
     echo "    -p file name prefix"
     echo "    -z z axis range, defaults to 30dB"
     echo "    -r reference SPL from which to set the -6dB point, defaults to 3dB below the max SPL found in the dataset"
+    echo "    -e sets the extension used for the frd files, defaults to txt"
 }
 
 function delete_or_blow {
@@ -77,7 +79,7 @@ function generate_normalised_data {
     ' ${PREFIX}_sorted_directivity.txt > ${PREFIX}_normalised_directivity.txt
 }
 
-while getopts "mdl:h:x:y:p:z:r:" OPTION
+while getopts "mdl:h:x:y:p:z:r:e:" OPTION
 do
      case $OPTION in
          m)
@@ -116,6 +118,10 @@ do
 	     SHIFT_COUNT=$((SHIFT_COUNT+2))
 	     REF_SPL="${OPTARG}"
 	     ;;
+	 e)
+	     SHIFT_COUNT=$((SHIFT_COUNT+2))
+	     FRD_EXTENSION="${OPTARG}"
+	     ;;
          *)
              usage
              exit 1
@@ -150,10 +156,10 @@ then
     mirror_data
 fi
 
-# parse the dat files into a single directivity file
-for each in $(ls *.dat)
+# parse the frd files into a single directivity file
+for each in $(ls *.${FRD_EXTENSION})
 do 
-    ROOT="${each%%.dat}"
+    ROOT="${each%%.${FRD_EXTENSION}}"
     DEGREES="${ROOT##*_}"
     echo "Parsing ${DEGREES} from ${each}"
     awk -F" " -v deg=${DEGREES} -v minfreq=${MIN_FREQ} -v maxfreq=${MAX_FREQ} '/^[0-9]/ { if ( $1 >= minfreq ) { if ( $1 <= maxfreq ) { print $1, deg, $2 } } }' $each >> ${PREFIX}_directivity.txt

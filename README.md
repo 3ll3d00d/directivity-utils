@@ -27,10 +27,6 @@ NB: these instructions assume you are using REW, other software probably works a
 
 NB: see the [sample] dir in this repo for an example of the exported data
 
-### WARNING!
-
-the script has hardcoded axis ranges atm so it assumes the measurement peaks at ~74dB, you either need to offset your data before export OR (better) edit the values in the script before you generate the plot
-
 ## Generate the Plot
 
 NB: assumes generate.sh from this repo is on your path and is executable
@@ -53,11 +49,21 @@ if you want to know what the cmd line options are then just run generate.sh -v
         -p file name prefix
         -z z axis range, defaults to 30dB
 
+The generated plot will always have a black line indicating the -6dB contour.
+
+# How do I change the reference SPL?
+
+The reference SPL is set using the -r option, if the supplied value is greater than the detected max spl then this is used instead. The reference spl is the point from which the -6dB contour is calculated.
+
+# My FRDs use a different file extension, how do I override it?
+
+Use the -e option
+
 # TODO
 
 ## Formatting
 
 * label the contours as -3, -6, -9 etc
-* fix the colour scheme applied to the contour lines
+
 
  
