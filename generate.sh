@@ -15,7 +15,7 @@ X_TICS=(200 400 600 800 1000 1250 1500 1750 2000 2500 3000 3500 4000 5000 10000 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 function usage {
-    echo "generate.sh -d -l 100 -h 22000 -m -x 1920 -y 1080 -p foo -z 30"
+    echo "generate.sh -d -l 100 -h 22000 -m -x 1920 -y 1080 -p foo -z 30 -r 80"
     echo "    -d force delete of existing generated files"
     echo "    -l sets the lo frequency for the data generated, if unset default to the minimum value in the input data (NB: actually 200 for now)"
     echo "    -h sets the hi frequency for the data generated, if unset default to the maximum value in the input data (NB: actually 24000 for now)"
@@ -24,7 +24,7 @@ function usage {
     echo "    -y height of image in pixels, default 1080"
     echo "    -p file name prefix"
     echo "    -z z axis range, defaults to 30dB"
-    
+    echo "    -r reference SPL from which to set the -6dB point, defaults to 3dB below the max SPL found in the dataset"
 }
 
 function delete_or_blow {
@@ -77,13 +77,13 @@ function generate_normalised_data {
     ' ${PREFIX}_sorted_directivity.txt > ${PREFIX}_normalised_directivity.txt
 }
 
-while getopts "mdl:h:x:y:p:z:" OPTION
+while getopts "mdl:h:x:y:p:z:r:" OPTION
 do
      case $OPTION in
-     m)
-         SHIFT_COUNT=$((SHIFT_COUNT+1))
-         AUTO_MIRROR=1
-         ;;
+         m)
+             SHIFT_COUNT=$((SHIFT_COUNT+1))
+             AUTO_MIRROR=1
+             ;;
 	 d)
 	     SHIFT_COUNT=$((SHIFT_COUNT+1))
 	     FORCE_DELETE=1
@@ -112,6 +112,10 @@ do
 	     SHIFT_COUNT=$((SHIFT_COUNT+2))
 	     Z_RANGE="${OPTARG}"
 	     ;;
+	 r)
+	     SHIFT_COUNT=$((SHIFT_COUNT+2))
+	     REF_SPL="${OPTARG}"
+	     ;;
          *)
              usage
              exit 1
@@ -127,6 +131,7 @@ fi
 if [ -z "${PREFIX}" ]
 then
     echo "Measurements must have a prefix"
+    usage
     exit 67
 fi
 
@@ -176,8 +181,12 @@ ACTUAL_MAX_FREQ=$(tail -n1 ${PREFIX}_sorted_directivity.txt | cut -d" " -f1)
 # find the max spl
 ACTUAL_MAX_SPL=$(sort -k3,3gr ${PREFIX}_sorted_directivity.txt | head -n1 | cut -d" " -f3)
 ACTUAL_MAX_SPL=$(printf "%.0f" $(bc -l <<< "${ACTUAL_MAX_SPL}+0.5"))
-MIN_SPL_MARKER=$((ACTUAL_MAX_SPL-Z_RANGE))
+
+# work out the ref spl for the contour range
 MAX_SPL_MARKER=$((ACTUAL_MAX_SPL-3))
+[[ -n "${REF_SPL}" ]] && [[ "${REF_SPL}" -lt "${MAX_SPL_MARKER}" ]] && MAX_SPL_MARKER="${REF_SPL}"
+MIN_SPL_MARKER=$((MAX_SPL_MARKER-Z_RANGE))
+
 # find the min/max degrees
 ACTUAL_MIN_DEGREES=$(sort -k2,2g ${PREFIX}_sorted_directivity.txt |head -n1| cut -d" " -f2)
 ACTUAL_MAX_DEGREES=$(sort -k2,2gr ${PREFIX}_sorted_directivity.txt |head -n1| cut -d" " -f2)
@@ -220,7 +229,7 @@ echo "                      (Freq   : ${ACTUAL_MIN_FREQ} to ${ACTUAL_MAX_FREQ})"
 echo "                      (Degrees: ${ACTUAL_MIN_DEGREES} to ${ACTUAL_MAX_DEGREES})"
 echo "                      (SPL    : ${MIN_SPL_MARKER} to ${ACTUAL_MAX_SPL})"
 echo "                      (XTics  : ${REAL_X_TICS})"
-
+echo "                      (Ref SPL: ${MAX_SPL_MARKER})"
 
 # unnormalised
 gnuplot <<EOF
@@ -258,6 +267,9 @@ set palette functions f(gray-0.75),f(gray-0.5),f(gray-0.25)
 set grid xtics nomxtics ytics nomytics noztics nomztics nox2tics nomx2tics noy2tics nomy2tics nocbtics nomcbtics
 set grid layerdefault lt 0 linewidth 0.500,  lt 0 linewidth 0.500
 #set style line 100 linecolor rgb "#f0e442" linewidth 0.500 pointtype 5 dashtype solid pointsize default point interval 0
+
+# contour lines - set the -6dB point as black
+set linetype 4 lc rgb "black" lw 3
 
 set cntrparam levels incremental ${MIN_SPL_MARKER},3,${MAX_SPL_MARKER}
 set cbrange [${MIN_SPL_MARKER}:${ACTUAL_MAX_SPL}]
@@ -303,8 +315,11 @@ set grid xtics nomxtics ytics nomytics noztics nomztics nox2tics nomx2tics noy2t
 set grid layerdefault lt 0 linewidth 0.500,  lt 0 linewidth 0.500
 #set style line 100 linecolor rgb "#f0e442" linewidth 0.500 pointtype 5 dashtype solid pointsize default point interval 0
 
+# contour lines - set the -6dB point as black
+set linetype 3 lc rgb "black" lw 3
+
 set cntrparam levels incremental -27,3,-3
-set cbrange [-27:2]
+set cbrange [-27:0]
 set output "${PREFIX}_normalised_sonogram.png"
 splot '${PREFIX}_normalised_sonogram_input.txt' using 1:2:3 title "                      " 
 EOF
