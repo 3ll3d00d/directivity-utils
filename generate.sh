@@ -11,6 +11,8 @@ WIDTH=1920
 HEIGHT=1080
 PREFIX=
 Z_RANGE=30
+X_TICS=(200 400 600 800 1000 1250 1500 1750 2000 2500 3000 3500 4000 5000 10000 15000 20000)
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 function usage {
     echo "generate.sh -d -l 100 -h 22000 -m -x 1920 -y 1080 -p foo -z 30"
@@ -22,6 +24,7 @@ function usage {
     echo "    -y height of image in pixels, default 1080"
     echo "    -p file name prefix"
     echo "    -z z axis range, defaults to 30dB"
+    
 }
 
 function delete_or_blow {
@@ -202,12 +205,24 @@ do
         ' ${PREFIX}_sorted_directivity.txt > ${PREFIX}_polar_${i}.txt
 done
 
+# find the xtics to set
+for X_TIC in "${X_TICS[@]}"
+do
+    if [[ "${X_TIC}" -ge "${MIN_FREQ}" ]] && [[ "${X_TIC}" -le "${MAX_FREQ}" ]]
+    then
+	[[ -n "${REAL_X_TICS}" ]] && REAL_X_TICS="${REAL_X_TICS},"
+	REAL_X_TICS="${REAL_X_TICS}${X_TIC}"
+    fi
+done
+
 echo "Plotting sonogram.png (size   : ${WIDTH} x ${HEIGHT}) "
 echo "                      (Freq   : ${ACTUAL_MIN_FREQ} to ${ACTUAL_MAX_FREQ})"
 echo "                      (Degrees: ${ACTUAL_MIN_DEGREES} to ${ACTUAL_MAX_DEGREES})"
 echo "                      (SPL    : ${MIN_SPL_MARKER} to ${ACTUAL_MAX_SPL})"
+echo "                      (XTics  : ${REAL_X_TICS})"
 
-# normal
+
+# unnormalised
 gnuplot <<EOF
 # set the input and output
 set term png size ${WIDTH},${HEIGHT} crop
@@ -220,42 +235,81 @@ set pm3d interpolate 20,20
 set cntrparam cubicspline
 
 # formatting of axes etc
-set logscale x 10
+set logscale x
 set xrange [${MIN_FREQ}:${MAX_FREQ}]
-set mxtics 10
+set xtics (${REAL_X_TICS})
 set xlabel 'Frequency (Hz)'
+set xtics out
 
 set ylabel 'deg'
 set yrange [${ACTUAL_MIN_DEGREES}:${ACTUAL_MAX_DEGREES}]
-set ytics ${ACTUAL_MIN_DEGREES},20,${ACTUAL_MAX_DEGREES}
+set ytics ${ACTUAL_MIN_DEGREES},15,${ACTUAL_MAX_DEGREES}
+set ytics out
 
 set key outside
 set key top right
-
-# black background
-#set object 1 rectangle from screen 0,0 to screen 1,1 fillcolor rgbcolor "black" behind 
 
 # jet palette
 f(x)=1.5-4*abs(x)
 set palette model RGB
 set palette functions f(gray-0.75),f(gray-0.5),f(gray-0.25)
 
-# plot the absolute view
+# dotted gridlines
+set grid xtics nomxtics ytics nomytics noztics nomztics nox2tics nomx2tics noy2tics nomy2tics nocbtics nomcbtics
+set grid layerdefault lt 0 linewidth 0.500,  lt 0 linewidth 0.500
+#set style line 100 linecolor rgb "#f0e442" linewidth 0.500 pointtype 5 dashtype solid pointsize default point interval 0
+
 set cntrparam levels incremental ${MIN_SPL_MARKER},3,${MAX_SPL_MARKER}
 set cbrange [${MIN_SPL_MARKER}:${ACTUAL_MAX_SPL}]
 set output "${PREFIX}_sonogram.png"
 splot '${PREFIX}_sonogram_input.txt' using 1:2:3 title "                      " 
+EOF
 
-# plot the relative view
+# normalised
+# TODO work out how to avoid this duplication, the grid seems to be lost on the 2nd plot otherwise
+gnuplot <<EOF
+# set the input and output
+set term png size ${WIDTH},${HEIGHT} crop
+set datafile separator " "
+
+# plot features
+set pm3d map
+set contour surface
+set pm3d interpolate 20,20
+set cntrparam cubicspline
+
+# formatting of axes etc
+set logscale x
+set xrange [${MIN_FREQ}:${MAX_FREQ}]
+set xtics (${REAL_X_TICS})
+set xlabel 'Frequency (Hz)'
+set xtics out
+
+set ylabel 'deg'
+set yrange [${ACTUAL_MIN_DEGREES}:${ACTUAL_MAX_DEGREES}]
+set ytics ${ACTUAL_MIN_DEGREES},15,${ACTUAL_MAX_DEGREES}
+set ytics out
+
+set key outside
+set key top right
+
+# jet palette
+f(x)=1.5-4*abs(x)
+set palette model RGB
+set palette functions f(gray-0.75),f(gray-0.5),f(gray-0.25)
+
+# dotted gridlines
+set grid xtics nomxtics ytics nomytics noztics nomztics nox2tics nomx2tics noy2tics nomy2tics nocbtics nomcbtics
+set grid layerdefault lt 0 linewidth 0.500,  lt 0 linewidth 0.500
+#set style line 100 linecolor rgb "#f0e442" linewidth 0.500 pointtype 5 dashtype solid pointsize default point interval 0
+
 set cntrparam levels incremental -27,3,-3
 set cbrange [-27:2]
-
 set output "${PREFIX}_normalised_sonogram.png"
 splot '${PREFIX}_normalised_sonogram_input.txt' using 1:2:3 title "                      " 
 EOF
 
 # polar plot
-
 gnuplot <<EOF
 set terminal pngcairo size ${WIDTH}/2,${HEIGHT}/2 font ',10'
 
