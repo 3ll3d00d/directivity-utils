@@ -14,9 +14,11 @@ Z_RANGE=30
 X_TICS=(200 400 600 800 1000 1250 1500 1750 2000 2500 3000 3500 4000 5000 10000 15000 20000)
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 FRD_EXTENSION="txt"
+Y_MAJOR=15
+NORM_ANGLE=0
 
 function usage {
-    echo "generate.sh -d -l 100 -h 22000 -m -x 1920 -y 1080 -p foo -z 30 -r 80 -e txt"
+    echo "generate.sh -d -l 100 -h 22000 -m -x 1920 -y 1080 -p foo -z 30 -r 80 -e txt -s 5 -n 22.5"
     echo "    -d force delete of existing generated files"
     echo "    -l sets the lo frequency for the data generated, if unset default to the minimum value in the input data (NB: actually 200 for now)"
     echo "    -h sets the hi frequency for the data generated, if unset default to the maximum value in the input data (NB: actually 24000 for now)"
@@ -27,6 +29,8 @@ function usage {
     echo "    -z z axis range, defaults to 30dB"
     echo "    -r reference SPL from which to set the -6dB point, defaults to 3dB below the max SPL found in the dataset"
     echo "    -e sets the extension used for the frd files, defaults to txt"
+    echo "    -s y axis major interval, defaults to 15"
+    echo "    -n normalisation angle, defaults to 0, data must exist otherwise boom!"
 }
 
 function delete_or_blow {
@@ -39,32 +43,32 @@ function delete_or_blow {
 }
 
 function mirror_data {
-    for each in $(ls ${PREFIX}_[0-9]*.dat)
+    for each in $(ls ${PREFIX}_[0-9]*.${FRD_EXTENSION})
     do
-        local ROOT="${each%%.dat}"
+        local ROOT="${each%%.${FRD_EXTENSION}}"
         local DEGREES="${ROOT##*_}"
         if [ "${DEGREES}" != 0 ]
         then
-            [[ ! -e "${PREFIX}_-${DEGREES}.dat" ]] && cp "${each}" "${PREFIX}_-${DEGREES}.dat"
+            [[ ! -e "${PREFIX}_-${DEGREES}.${FRD_EXTENSION}" ]] && cp "${each}" "${PREFIX}_-${DEGREES}.${FRD_EXTENSION}"
         fi
     done
-    for each in $(ls ${PREFIX}_-[0-9]*.dat)
+    for each in $(ls ${PREFIX}_-[0-9]*.${FRD_EXTENSION})
     do
-        local ROOT="${each%%.dat}"
+        local ROOT="${each%%.${FRD_EXTENSION}}"
 	local DEGREES="${ROOT##*_}"
 	local DEGREES="${DEGREES:1}"
-	[[ ! -e "${PREFIX}_${DEGREES}.dat" ]] && cp "${each}" "${PREFIX}_${DEGREES}.dat"
+	[[ ! -e "${PREFIX}_${DEGREES}.${FRD_EXTENSION}" ]] && cp "${each}" "${PREFIX}_${DEGREES}.${FRD_EXTENSION}"
     done
 }
 
 # parses file to normalise all SPL values relative to the 0 degree
 # assumes data is consistent (i.e. freq value exists for each degree)
 function generate_normalised_data {
-    awk -F" " '
+    awk -F" " -v normangle="${NORM_ANGLE}" '
         function dump_normalised() {
-            norm_spl=spl[0]
+            norm_spl=spl[normangle]
             for (val in spl) 
-                print freq, val, spl[val]-norm_spl
+                print freq, val, spl[val]-norm_spl-3
             freq=0
             delete spl
         }
@@ -79,7 +83,7 @@ function generate_normalised_data {
     ' ${PREFIX}_sorted_directivity.txt > ${PREFIX}_normalised_directivity.txt
 }
 
-while getopts "mdl:h:x:y:p:z:r:e:" OPTION
+while getopts "mdl:h:x:y:p:z:r:e:s:n:" OPTION
 do
      case $OPTION in
          m)
@@ -122,6 +126,14 @@ do
 	     SHIFT_COUNT=$((SHIFT_COUNT+2))
 	     FRD_EXTENSION="${OPTARG}"
 	     ;;
+	 s)
+	     SHIFT_COUNT=$((SHIFT_COUNT+2))
+	     Y_MAJOR="${OPTARG}"
+	     ;;
+	 n)
+	     SHIFT_COUNT=$((SHIFT_COUNT+2))
+	     NORM_ANGLE="${OPTARG}"
+	     ;;
          *)
              usage
              exit 1
@@ -156,14 +168,23 @@ then
     mirror_data
 fi
 
+HAS_NORM_ANGLE_DATA=0
 # parse the frd files into a single directivity file
 for each in $(ls *.${FRD_EXTENSION})
 do 
     ROOT="${each%%.${FRD_EXTENSION}}"
     DEGREES="${ROOT##*_}"
+    [[ "${DEGREES}" = "${NORM_ANGLE}" ]] && HAS_NORM_ANGLE_DATA=1
     echo "Parsing ${DEGREES} from ${each}"
     awk -F" " -v deg=${DEGREES} -v minfreq=${MIN_FREQ} -v maxfreq=${MAX_FREQ} '/^[0-9]/ { if ( $1 >= minfreq ) { if ( $1 <= maxfreq ) { print $1, deg, $2 } } }' $each >> ${PREFIX}_directivity.txt
 done
+
+if [ "${HAS_NORM_ANGLE_DATA}" -eq 0 ]
+then
+    echo "Explicit data for the norm angle ${NORM_ANGLE} must exist"
+    usage
+    exit 68
+fi
 
 # check we have some data
 [[ ! -e ${PREFIX}_directivity.txt ]] && echo "No files processed" && exit 66
@@ -240,7 +261,7 @@ echo "                      (Ref SPL: ${MAX_SPL_MARKER})"
 # unnormalised
 gnuplot <<EOF
 # set the input and output
-set term png size ${WIDTH},${HEIGHT} crop
+set term png size ${WIDTH},${HEIGHT} crop 
 set datafile separator " "
 
 # plot features
@@ -258,7 +279,7 @@ set xtics out
 
 set ylabel 'deg'
 set yrange [${ACTUAL_MIN_DEGREES}:${ACTUAL_MAX_DEGREES}]
-set ytics ${ACTUAL_MIN_DEGREES},15,${ACTUAL_MAX_DEGREES}
+set ytics ${ACTUAL_MIN_DEGREES},${Y_MAJOR},${ACTUAL_MAX_DEGREES}
 set ytics out
 
 set key outside
@@ -305,8 +326,10 @@ set xtics out
 
 set ylabel 'deg'
 set yrange [${ACTUAL_MIN_DEGREES}:${ACTUAL_MAX_DEGREES}]
-set ytics ${ACTUAL_MIN_DEGREES},15,${ACTUAL_MAX_DEGREES}
+set ytics ${ACTUAL_MIN_DEGREES},${Y_MAJOR},${ACTUAL_MAX_DEGREES}
 set ytics out
+
+set cbtics 3
 
 set key outside
 set key top right
@@ -325,7 +348,9 @@ set grid layerdefault lt 0 linewidth 0.500,  lt 0 linewidth 0.500
 set linetype 3 lc rgb "black" lw 3
 
 set cntrparam levels incremental -27,3,-3
-set cbrange [-27:0]
+# TODO if -n is set then adjust the peak value here accordingly
+# set cbrange [-27:3]
+set cbrange [-12:3]
 set output "${PREFIX}_normalised_sonogram.png"
 splot '${PREFIX}_normalised_sonogram_input.txt' using 1:2:3 title "                      " 
 EOF
